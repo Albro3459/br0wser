@@ -1,7 +1,8 @@
 {
   "name": "br0wser",
   "version": "0.1.0",
-  "author": "Alex Brodsky",
+  "author": "Albro3459",
+  "license": "MIT",
   "type": "module",
   "description": "Local CDP helper for attaching to or launching a persistent debug browser",
   "keywords": [ "browser", "cdp", "chrome", "chromium", "cli", "playwright" ],
