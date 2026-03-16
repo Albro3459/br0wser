@@ -1,0 +1,6 @@
+interface:
+  display_name: "Br0wser Skill"
+  short_description: "Launch a persistent browser to reuse across tasks or attach to an existing debug browser"
+  icon_small: "./assets/br0wser-small.svg"
+  icon_large: "./assets/br0wser.png"
+  default_prompt: "Launch a persistent browser to reuse across tasks, attach to an existing debug browser, reuse browser state, and use the configured Chrome debug port."

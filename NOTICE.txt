@@ -1,0 +1,1 @@
+Custom skill for an Agent to use a persistent Chrome/Chromium browser with playwright and join/re-join an active browser session
