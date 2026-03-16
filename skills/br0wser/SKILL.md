@@ -22,6 +22,7 @@ If either are not available, install once:
 
 ```bash
 npm install -g @albro3459/br0wser
+br0wser install --skills
 ```
 
 Or run it on demand with `npx`:
@@ -29,6 +30,8 @@ Or run it on demand with `npx`:
 ```bash
 npx @albro3459/br0wser --chrome-port <port> info
 ```
+
+Use `br0wser --help` when you need to print the current install target plus the packaged paths for the bundle `README.md`, `SKILL.md`, and `references/`.
 
 The package includes Playwright through its own dependencies.
 

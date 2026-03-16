@@ -7,10 +7,69 @@ import os from "os";
 import path from "path";
 import crypto from "crypto";
 import { spawn } from "child_process";
+import { fileURLToPath } from "url";
 import { chromium } from "playwright";
+
 const ACTION_TIMEOUT_MS = Number(process.env.BROWSER_ACTION_TIMEOUT_MS || "10000");
 const ENDPOINT_WAIT_MS = Number(process.env.BROWSER_ENDPOINT_WAIT_MS || "10000");
 const ENDPOINT_WAIT_STEP_MS = 250;
+const SCRIPT_PATH = fileURLToPath(import.meta.url);
+const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
+const PACKAGE_ROOT = path.resolve(SCRIPT_DIR, "..");
+const BUNDLED_SKILL_ROOT = path.join(PACKAGE_ROOT, "skills", "br0wser");
+
+const getCodexHome = () => process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+const getInstalledSkillRoot = () => path.join(getCodexHome(), "skills", "br0wser");
+
+const formatHelp = () => {
+  const installedSkillRoot = getInstalledSkillRoot();
+
+  return [
+    "br0wser",
+    "",
+    "Launch Chrome/Chromium with a debug port or attach to an existing CDP session.",
+    "",
+    "Usage:",
+    "  br0wser [options] <command> [args]",
+    "  br0wser install --skills",
+    "  br0wser --help",
+    "",
+    "Options:",
+    "  --endpoint <url>        Connect directly to a CDP endpoint",
+    "  --chrome-port <port>    Use a local Chrome debug port (default: 9222)",
+    "  --page-url <fragment>   Select the first page whose URL includes the fragment",
+    "  --headless              Launch a headless browser for open",
+    "  --headed                Force headed mode for open",
+    "  --user-data-dir <path>  Use a dedicated browser profile when launching",
+    "  -h, --help              Show this help",
+    "",
+    "Commands:",
+    "  open [url]              Launch or reuse a browser and navigate to a URL",
+    "  info                    List pages in the connected browser",
+    "  goto <url>              Navigate the selected page",
+    "  click-text <text>       Click the first exact text match",
+    "  click-selector <css>    Click the first matching locator",
+    "  fill-selector <css> <text>",
+    "                          Fill a matching locator",
+    "  screenshot [filename]   Save a PNG in the OS temp .br0wser directory",
+    "  eval <expression>       Evaluate JavaScript in the selected page",
+    "  install --skills        Copy the bundled Codex skill into your skills directory",
+    "  help                    Show this help",
+    "",
+    "Install flow:",
+    "  1. npm install -g @albro3459/br0wser",
+    "  2. br0wser install --skills",
+    "",
+    "Skill install target:",
+    `  ${installedSkillRoot}`,
+    "",
+    "Bundled docs in this package:",
+    `  Package README.md: ${path.join(PACKAGE_ROOT, "README.md")}`,
+    `  SKILL.md: ${path.join(BUNDLED_SKILL_ROOT, "SKILL.md")}`,
+    `  References: ${path.join(BUNDLED_SKILL_ROOT, "references")}`,
+    `  Agent metadata: ${path.join(BUNDLED_SKILL_ROOT, "agents", "openai.yaml")}`,
+  ].join("\n");
+};
 
 const parseArgs = (argv) => {
   const result = {
@@ -21,10 +80,15 @@ const parseArgs = (argv) => {
     userDataDir: process.env.CDP_USER_DATA_DIR || "",
     command: "info",
     args: [],
+    help: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
+    if (value === "--help" || value === "-h") {
+      result.help = true;
+      continue;
+    }
     if (value === "--endpoint") {
       result.endpoint = argv[index + 1] || result.endpoint;
       index += 1;
@@ -62,6 +126,42 @@ const parseArgs = (argv) => {
   }
 
   return result;
+};
+
+const ensureBundledSkillExists = () => {
+  if (!fs.existsSync(BUNDLED_SKILL_ROOT)) {
+    throw new Error(`Bundled skill files were not found at ${BUNDLED_SKILL_ROOT}`);
+  }
+};
+
+const copyTree = (sourceRoot, targetRoot) => {
+  const entries = fs.readdirSync(sourceRoot, { withFileTypes: true });
+  fs.mkdirSync(targetRoot, { recursive: true });
+
+  for (const entry of entries) {
+    const sourcePath = path.join(sourceRoot, entry.name);
+    const targetPath = path.join(targetRoot, entry.name);
+
+    if (entry.isDirectory()) {
+      copyTree(sourcePath, targetPath);
+      continue;
+    }
+
+    fs.copyFileSync(sourcePath, targetPath);
+  }
+};
+
+const installSkills = () => {
+  ensureBundledSkillExists();
+
+  const installedSkillRoot = getInstalledSkillRoot();
+  copyTree(BUNDLED_SKILL_ROOT, installedSkillRoot);
+
+  console.log(`installed-skill=${installedSkillRoot}`);
+  console.log(`source-skill=${BUNDLED_SKILL_ROOT}`);
+  console.log(`package-readme=${path.join(PACKAGE_ROOT, "README.md")}`);
+  console.log(`skill-md=${path.join(installedSkillRoot, "SKILL.md")}`);
+  console.log(`references=${path.join(installedSkillRoot, "references")}`);
 };
 
 const requireArg = (value, label) => {
@@ -210,6 +310,21 @@ const launchDebugBrowser = async (options, url) => {
 export async function main() {
   const args = process.argv.slice(2);
   const options = parseArgs(args);
+
+  if (options.help || options.command === "help") {
+    console.log(formatHelp());
+    return;
+  }
+
+  if (options.command === "install") {
+    if (!options.args.includes("--skills")) {
+      throw new Error('Unknown install target. Use "br0wser install --skills".');
+    }
+
+    installSkills();
+    return;
+  }
+
   options.endpoint = resolveEndpoint(options);
 
   if (options.command === "open") {

@@ -18,15 +18,32 @@ That makes it useful for agent skills, local app development, debugger-driven fl
 
 ## Install
 
+Install the CLI:
+
 ```bash
 npm install -g @albro3459/br0wser
 ```
 
-Or run it without a global install:
+Install the bundled Codex skill:
+
+```bash
+br0wser install --skills
+```
+
+That second command copies the packaged skill bundle into `$CODEX_HOME/skills/br0wser` or `~/.codex/skills/br0wser` when `CODEX_HOME` is not set.
+
+You can also run the CLI without a global install:
 
 ```bash
 npx @albro3459/br0wser info
 ```
+
+Use `br0wser --help` to see the install flow again and print the resolved paths for:
+
+- the package `README.md`
+- the bundled skill `SKILL.md`
+- the bundled skill `references/` directory
+- the installed skill target directory
 
 Optional convenience alias:
 
@@ -37,8 +54,6 @@ alias brwsr="br0wser --chrome-port 9222"
 The helper defaults to Chrome debug port `9222`, so `--chrome-port` is optional unless you need a different port. The alias is still handy if you want to make that default explicit.
 
 ## Quick start
-
-The most common use case is an agent attaching to a persistent browser that you already opened or that your debugger launched.
 
 Launch or reuse a browser on the default port `9222`:
 
@@ -71,6 +86,7 @@ br0wser --chrome-port 9222 --page-url example.org click-text 'Continue'
 br0wser --chrome-port 9222 --page-url example.org fill-selector 'input[name="email"]' 'user@example.com'
 br0wser --chrome-port 9222 --page-url example.org eval "document.title"
 br0wser --chrome-port 9222 --page-url example.org screenshot page.png
+br0wser install --skills
 ```
 
 ## How it works
@@ -79,10 +95,9 @@ br0wser --chrome-port 9222 --page-url example.org screenshot page.png
 - if a browser is already running on that port, `open` reuses it
 - each command connects, does one job, and detaches cleanly
 - the browser keeps running until you close it
+- `install --skills` copies the bundled skill files into your Codex skills directory
 
 That means session state persists naturally across commands.
-
-For agents, that persistent state is the whole point: one step can open or reuse the browser, later steps can reconnect, and neither the tool nor the agent has to rebuild app state from scratch every time.
 
 ## Useful flags
 
@@ -91,6 +106,7 @@ For agents, that persistent state is the whole point: one step can open or reuse
 - `--headless`: launch in headless mode when using `open`
 - `--user-data-dir <path>`: use a dedicated browser profile
 - `--endpoint <url>`: connect directly to a CDP endpoint instead of building one from a port
+- `--help`: print usage, install flow, and the local doc paths bundled with the package
 
 ## VS Code example
 
@@ -144,6 +160,22 @@ br0wser --chrome-port 9222 --page-url localhost:4200 screenshot debug-session.pn
 - `fill-selector <selector> <text>`
 - `screenshot [filename]`
 - `eval <expression>`
+- `install --skills`
+
+## Docs layout
+
+Repository docs live here:
+
+- `README.md`
+
+The npm package also bundles the Codex skill at `skills/br0wser/` with:
+
+- `skills/br0wser/SKILL.md`
+- `skills/br0wser/references/`
+- `skills/br0wser/agents/openai.yaml`
+- `skills/br0wser/assets/`
+
+`br0wser install --skills` copies that bundled directory into your Codex skills folder.
 
 ## Notes
 
