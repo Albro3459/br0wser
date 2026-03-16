@@ -19,13 +19,13 @@ That makes it useful for agent skills, local app development, debugger-driven fl
 ## Install
 
 ```bash
-npm install -g br0wser
+npm install -g @albro3459/br0wser
 ```
 
 Or run it without a global install:
 
 ```bash
-npx br0wser info
+npx @albro3459/br0wser info
 ```
 
 Optional convenience alias:

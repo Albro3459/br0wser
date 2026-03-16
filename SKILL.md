@@ -21,13 +21,13 @@ command -v playwright >/dev/null 2>&1
 If either are not available, install once:
 
 ```bash
-npm install -g br0wser
+npm install -g @albro3459/br0wser
 ```
 
 Or run it on demand with `npx`:
 
 ```bash
-npx br0wser --chrome-port <port> info
+npx @albro3459/br0wser --chrome-port <port> info
 ```
 
 The package includes Playwright through its own dependencies.
@@ -62,13 +62,13 @@ If the repo does not document a port, default to `9222` unless the user asks for
 Install or repair the package globally:
 
 ```bash
-npm install -g br0wser
+npm install -g @albro3459/br0wser
 ```
 
 Or invoke it without a global install:
 
 ```bash
-npx br0wser --chrome-port <port> info
+npx @albro3459/br0wser --chrome-port <port> info
 ```
 
 After installation, verify both prerequisites before relying on it:
@@ -78,7 +78,7 @@ command -v br0wser >/dev/null 2>&1
 command -v playwright >/dev/null 2>&1
 ```
 
-After that, invoke the helper as `br0wser ...` or `npx br0wser ...`.
+After that, invoke the helper as `br0wser ...` or `npx @albro3459/br0wser ...`.
 
 ## Starting your own persistent browser
 
@@ -186,7 +186,7 @@ Open only what you need:
 ## Guardrails
 
 - Do not skip the install step just because `command -v br0wser` succeeds. `command -v playwright` must also succeed.
-- If the helper resolves on `PATH` but Playwright does not, repair it with `npm install -g br0wser` or use `npx br0wser ...` before proceeding.
+- If the helper resolves on `PATH` but Playwright does not, repair it with `npm install -g @albro3459/br0wser` or use `npx @albro3459/br0wser ...` before proceeding.
 
 - Attach only to a browser the user has already launched or explicitly approved.
 - If you launch your own debug browser, use a dedicated `--user-data-dir`.
