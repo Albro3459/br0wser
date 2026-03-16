@@ -1,6 +1,6 @@
 {
   "name": "@albro3459/br0wser",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "author": "Albro3459",
   "license": "MIT",
   "type": "module",
@@ -24,5 +24,9 @@
   },
   "bin": {
     "br0wser": "scripts/br0wser.js"
+  },
+  "scripts": {
+    "version:update": "npm version patch --no-git-tag-version",
+    "deploy": "npm publish --access=public"
   }
 }
