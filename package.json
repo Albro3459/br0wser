@@ -5,7 +5,14 @@
   "license": "MIT",
   "type": "module",
   "description": "Local CDP helper for attaching to or launching a persistent debug browser",
-  "keywords": [ "browser", "cdp", "chrome", "chromium", "cli", "playwright" ],
+  "keywords": [
+    "browser",
+    "cdp",
+    "chrome",
+    "chromium",
+    "cli",
+    "playwright"
+  ],
   "files": [
     "scripts",
     "README.md",
