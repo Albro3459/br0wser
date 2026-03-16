@@ -18,12 +18,21 @@ const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
 const PACKAGE_ROOT = path.resolve(SCRIPT_DIR, "..");
 const BUNDLED_SKILL_ROOT = path.join(PACKAGE_ROOT, "skills", "br0wser");
 
+const getClaudeHome = () => path.join(os.homedir(), ".claude");
 const getCodexHome = () => process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
-const getInstalledSkillRoot = () => path.join(getCodexHome(), "skills", "br0wser");
+
+const resolveInstalledSkillRoot = (agent) => {
+  if (agent === "claude") {
+    return path.join(getClaudeHome(), "skills", "br0wser");
+  }
+  if (agent === "codex") {
+    return path.join(getCodexHome(), "skills", "br0wser");
+  }
+
+  throw new Error(`Unknown skill target: ${agent}`);
+};
 
 const formatHelp = () => {
-  const installedSkillRoot = getInstalledSkillRoot();
-
   return [
     "br0wser",
     "",
@@ -31,7 +40,7 @@ const formatHelp = () => {
     "",
     "Usage:",
     "  br0wser [options] <command> [args]",
-    "  br0wser install --skills",
+    "  br0wser install --skills <claude|codex>",
     "  br0wser --help",
     "",
     "Options:",
@@ -53,15 +62,18 @@ const formatHelp = () => {
     "                          Fill a matching locator",
     "  screenshot [filename]   Save a PNG in the OS temp .br0wser directory",
     "  eval <expression>       Evaluate JavaScript in the selected page",
-    "  install --skills        Copy the bundled Codex skill into your skills directory",
+    "  install --skills <agent>",
+    "                          Copy the bundled skill into the selected agent skills directory",
     "  help                    Show this help",
     "",
     "Install flow:",
     "  1. npm install -g @albro3459/br0wser",
-    "  2. br0wser install --skills",
+    "  2. br0wser install --skills codex",
+    "     or br0wser install --skills claude",
     "",
-    "Skill install target:",
-    `  ${installedSkillRoot}`,
+    "Skill install targets:",
+    `  codex: ${resolveInstalledSkillRoot("codex")}`,
+    `  claude: ${resolveInstalledSkillRoot("claude")}`,
     "",
     "Bundled docs in this package:",
     `  Package README.md: ${path.join(PACKAGE_ROOT, "README.md")}`,
@@ -151,12 +163,14 @@ const copyTree = (sourceRoot, targetRoot) => {
   }
 };
 
-const installSkills = () => {
+const installSkills = (agent) => {
   ensureBundledSkillExists();
 
-  const installedSkillRoot = getInstalledSkillRoot();
+  const installedSkillRoot = resolveInstalledSkillRoot(agent);
+  fs.rmSync(installedSkillRoot, { recursive: true, force: true });
   copyTree(BUNDLED_SKILL_ROOT, installedSkillRoot);
 
+  console.log(`agent=${agent}`);
   console.log(`installed-skill=${installedSkillRoot}`);
   console.log(`source-skill=${BUNDLED_SKILL_ROOT}`);
   console.log(`package-readme=${path.join(PACKAGE_ROOT, "README.md")}`);
@@ -317,11 +331,16 @@ export async function main() {
   }
 
   if (options.command === "install") {
-    if (!options.args.includes("--skills")) {
-      throw new Error('Unknown install target. Use "br0wser install --skills".');
+    if (options.args[0] !== "--skills") {
+      throw new Error('Unknown install target. Use "br0wser install --skills <claude|codex>".');
     }
 
-    installSkills();
+    const agent = options.args[1];
+    if (agent !== "claude" && agent !== "codex") {
+      throw new Error('Missing or invalid skills target. Use "br0wser install --skills <claude|codex>".');
+    }
+
+    installSkills(agent);
     return;
   }
 

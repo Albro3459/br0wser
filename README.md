@@ -19,18 +19,23 @@ That makes it useful for agent skills, local app development, debugger-driven fl
 ## Install
 
 Install the CLI:
-
 ```bash
 npm install -g @albro3459/br0wser
 ```
 
-Install the bundled Codex skill:
-
+Install the bundled Claude skill:
 ```bash
-br0wser install --skills
+br0wser install --skills claude
 ```
 
-That second command copies the packaged skill bundle into `$CODEX_HOME/skills/br0wser` or `~/.codex/skills/br0wser` when `CODEX_HOME` is not set.
+Install the bundled Codex skill:
+```bash
+br0wser install --skills codex
+```
+
+Those commands copy the packaged skill bundle into the matching agent skill directory:
+- Claude: `~/.claude/skills/br0wser`
+- Codex: `$CODEX_HOME/skills/br0wser` or `~/.codex/skills/br0wser` when `CODEX_HOME` is not set
 
 You can also run the CLI without a global install:
 
@@ -86,7 +91,7 @@ br0wser --chrome-port 9222 --page-url example.org click-text 'Continue'
 br0wser --chrome-port 9222 --page-url example.org fill-selector 'input[name="email"]' 'user@example.com'
 br0wser --chrome-port 9222 --page-url example.org eval "document.title"
 br0wser --chrome-port 9222 --page-url example.org screenshot page.png
-br0wser install --skills
+br0wser install --skills <claude|codex>
 ```
 
 ## How it works
@@ -95,7 +100,7 @@ br0wser install --skills
 - if a browser is already running on that port, `open` reuses it
 - each command connects, does one job, and detaches cleanly
 - the browser keeps running until you close it
-- `install --skills` copies the bundled skill files into your Codex skills directory
+- `install --skills <claude|codex>` copies the bundled skill files into the selected agent skills directory
 
 That means session state persists naturally across commands.
 
@@ -160,7 +165,7 @@ br0wser --chrome-port 9222 --page-url localhost:4200 screenshot debug-session.pn
 - `fill-selector <selector> <text>`
 - `screenshot [filename]`
 - `eval <expression>`
-- `install --skills`
+- `install --skills <claude|codex>`
 
 ## Docs layout
 
@@ -175,7 +180,7 @@ The npm package also bundles the Codex skill at `skills/br0wser/` with:
 - `skills/br0wser/agents/openai.yaml`
 - `skills/br0wser/assets/`
 
-`br0wser install --skills` copies that bundled directory into your Codex skills folder.
+`br0wser install --skills <claude|codex>` copies that bundled directory into the selected agent skills folder.
 
 ## Notes
 

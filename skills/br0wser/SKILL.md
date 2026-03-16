@@ -22,7 +22,7 @@ If either are not available, install once:
 
 ```bash
 npm install -g @albro3459/br0wser
-br0wser install --skills
+br0wser install --skills <claude|codex>
 ```
 
 Or run it on demand with `npx`:
