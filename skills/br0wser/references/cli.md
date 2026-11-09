@@ -1,57 +1,49 @@
-# Browser Reference
+# CLI reference
 
-Assume the main install step from `SKILL.md` is already complete.
+Global options go before the command. An option placed after the command is an error. The default local Chrome debug port is `9222`.
 
-Optional convenience alias:
+To launch, set `BROWSER_CHROME_PATH` to an installed Chrome/Chromium executable or have Playwright's Chromium installed. The npm package includes the Playwright library and does not download a browser binary. Attach-only commands use the already running browser.
 
-```bash
-alias brwsr="br0wser --chrome-port <port>"
-```
-
-If you omit `--chrome-port`, `br0wser` defaults to `9222`.
-
-## Start or reuse a persistent browser
-
-Use `open` to launch or reuse a session. It is headed by default:
+## Profiles
 
 ```bash
-brwsr open https://example.com
-brwsr open https://example.com --headless
+br0wser profile create <name>
+br0wser --profile <name> --chrome-port <port> open [url]
+br0wser --profile <name> --chrome-port <port> info
 ```
 
-Use `open` to start or reuse a session, and `goto` to navigate the current selected page to a new URL.
+A profile name contains lowercase letters, digits, hyphens, or underscores, and starts with a letter or digit. Its directory is `~/.br0wser/profiles/<name>`. Creation is safe to repeat. Chrome initializes the browser data on first launch.
 
-## Core
+Supply the profile and port on every command. A missing profile is an error; create it explicitly when you intend to start a new session. Named profiles are currently supported on macOS. They cannot be combined with `--user-data-dir` or `--endpoint`, including `CDP_USER_DATA_DIR` or `CDP_ENDPOINT` environment settings.
 
-```bash
-brwsr open https://example.com
-brwsr info
-brwsr goto https://example.org
-brwsr --page-url <url-fragment> info
-brwsr --page-url <url-fragment> click-selector '<selector>'
-brwsr --page-url <url-fragment> click-text 'Login'
-brwsr --page-url <url-fragment> fill-selector '<selector>' 'value'
-brwsr --page-url <url-fragment> eval "location.href"
-brwsr --page-url <url-fragment> screenshot shared-browser.png
-```
+Before it uses existing pages, br0wser checks that the connected browser owns the profile directory. It asks the browser for its process ID over CDP and compares that to the owner of Chrome's `SingletonLock` in the directory. The check opens no tab and does not change focus. If the profile cannot be verified, the command stops.
 
-## Liveness
+Before launching into a free port, br0wser refuses to use a profile directory that contains a Chrome singleton lock, socket, or cookie entry. If Chrome is already using the profile on another port, use that session's configured port. A crash or force quit can leave stale entries behind. After confirming no Chrome is running on the profile, delete `SingletonLock`, `SingletonSocket`, and `SingletonCookie` from the profile directory. br0wser does not remove Chrome locks itself.
 
-```bash
-ping -c 1 127.0.0.1
-curl -s http://127.0.0.1:<port>/json/version
-curl -s http://127.0.0.1:<port>/json/list
-```
+Named profiles assume a trusted local machine and a local filesystem. Lock preflight cannot reserve a directory against concurrent Chrome launches. A racing launch may still open an extra blank tab, but the requested URL is sent only after verification. Remote and forwarded endpoints are outside this mode.
 
-## Notes
+## Options
 
-- Prefer `info` before interacting.
-- `open` defaults to headed mode. Pass `--headless` only when needed.
-- `screenshot` writes to `<os tmpdir>/.br0wser/`; pass only a filename (optional), and all output filenames get `-<timestamp>-<hash>` appended.
-- Use `--page-url` when multiple tabs may exist.
-- Follow route-changing clicks with `info` or `eval "location.href"`.
-- Prefer selector hooks over repeated text labels.
-- If the installed binary is shadowed by a shell function, use `command br0wser ...`.
-- Never close the attached browser session from the helper.
-- A browser launched this way stays alive until the user closes it.
-- Good for research, browser-side JS, local app testing, and debugging.
+- `--profile <name>`: select and verify a named profile on macOS.
+- `--chrome-port <port>`: use a local Chrome debug port. Defaults to `9222`.
+- `--endpoint <url>`: connect to a CDP endpoint. Cannot be combined with `--profile`.
+- `--user-data-dir <path>`: set the directory when launching a browser. Cannot be combined with `--profile`.
+- `--page-url <fragment>`: prefer the first page whose URL contains the fragment. If none matches, current behavior falls back to the first page.
+- `--headless`: launch headless when `open` starts a browser.
+- `--headed`: launch headed when `open` starts a browser.
+- `--help`, `-h`: print CLI help.
+
+Endpoint resolution without a named profile follows this order: `--endpoint`, `CDP_ENDPOINT`, `--chrome-port`, `CDP_CHROME_PORT`, then `9222`.
+
+## Commands
+
+- `open [url]`: launch or reuse a browser and navigate to a URL. Defaults to `about:blank`.
+- `info`: list pages and the selected page.
+- `goto <url>`: navigate the selected page.
+- `click-text <text>`: click the first exact text match.
+- `click-selector <css>`: click the first matching locator.
+- `fill-selector <css> <text>`: fill a matching locator.
+- `screenshot [filename]`: save a PNG under the OS temp `.br0wser` directory. The CLI adds a timestamp and random suffix.
+- `eval <expression>`: evaluate JavaScript in the selected page and print its JSON result.
+- `profile create <name>`: create a named profile directory without launching Chrome.
+- `install --skills <claude|codex>`: copy the bundled skill into the chosen agent's skill directory.

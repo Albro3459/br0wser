@@ -1,6 +1,6 @@
 interface:
-  display_name: "Br0wser Skill"
-  short_description: "Launch a persistent browser to reuse across tasks or attach to an existing debug browser"
+  display_name: "br0wser"
+  short_description: "Reconnect to persistent Chrome sessions with optional profiles"
   icon_small: "./assets/br0wser-small.svg"
   icon_large: "./assets/br0wser.png"
-  default_prompt: "Launch a persistent browser to reuse across tasks, attach to an existing debug browser, reuse browser state, and use the configured Chrome debug port."
+  default_prompt: "Use br0wser to launch or reconnect to the project’s persistent Chrome session. Follow its profile, port, and page instructions."

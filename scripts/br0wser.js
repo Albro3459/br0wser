@@ -9,10 +9,17 @@ import crypto from "crypto";
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { chromium } from "playwright";
+import {
+  resolveProfileDirectory,
+  requireUnusedProfile,
+  isLocalPortOccupied,
+  verifyProfileDirectory,
+} from "./profiles.js";
 
 const ACTION_TIMEOUT_MS = Number(process.env.BROWSER_ACTION_TIMEOUT_MS || "10000");
 const ENDPOINT_WAIT_MS = Number(process.env.BROWSER_ENDPOINT_WAIT_MS || "10000");
 const ENDPOINT_WAIT_STEP_MS = 250;
+const GLOBAL_OPTIONS = ["--endpoint", "--chrome-port", "--page-url", "--headless", "--headed", "--user-data-dir", "--profile"];
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
 const PACKAGE_ROOT = path.resolve(SCRIPT_DIR, "..");
@@ -36,11 +43,12 @@ const formatHelp = () => {
   return [
     "br0wser",
     "",
-    "Launch Chrome/Chromium with a debug port or attach to an existing CDP session.",
+    "Launch or reconnect to persistent Chrome/Chromium sessions over CDP.",
     "",
     "Usage:",
     "  br0wser [options] <command> [args]",
     "  br0wser install --skills <claude|codex>",
+    "  br0wser profile create <name>",
     "  br0wser --help",
     "",
     "Options:",
@@ -50,11 +58,13 @@ const formatHelp = () => {
     "  --headless              Launch a headless browser for open",
     "  --headed                Force headed mode for open",
     "  --user-data-dir <path>  Use a dedicated browser profile when launching",
+    "  --profile <name>        Verify a named persistent profile (macOS only)",
     "  -h, --help              Show this help",
     "",
     "Commands:",
     "  open [url]              Launch or reuse a browser and navigate to a URL",
     "  info                    List pages in the connected browser",
+    "  profile create <name>   Create a named profile without launching Chrome",
     "  goto <url>              Navigate the selected page",
     "  click-text <text>       Click the first exact text match",
     "  click-selector <css>    Click the first matching locator",
@@ -91,6 +101,7 @@ const parseArgs = (argv) => {
     pageUrl: process.env.CDP_PAGE_URL || "",
     headless: false,
     userDataDir: process.env.CDP_USER_DATA_DIR || "",
+    profile: "",
     command: "info",
     args: [],
     help: false,
@@ -125,6 +136,13 @@ const parseArgs = (argv) => {
       result.headless = false;
       continue;
     }
+    if (value === "--profile") {
+      const name = argv[index + 1];
+      if (!name || name.startsWith("--")) throw new Error("Missing required argument: --profile <name>");
+      result.profile = name;
+      index += 1;
+      continue;
+    }
     if (value === "--user-data-dir") {
       result.userDataDir = argv[index + 1] || result.userDataDir;
       index += 1;
@@ -135,6 +153,11 @@ const parseArgs = (argv) => {
     }
     result.command = value;
     result.args = argv.slice(index + 1);
+    // A trailing option would be read as a plain argument and silently ignored
+    const misplaced = result.args.find((arg) => GLOBAL_OPTIONS.includes(arg));
+    if (misplaced) {
+      throw new Error(`Put ${misplaced} before the command: br0wser [options] ${value} [args]`);
+    }
     break;
   }
 
@@ -315,7 +338,13 @@ const launchDebugBrowser = async (options, url) => {
   });
 
   child.unref();
-  await waitForEndpoint(options.endpoint);
+  const startupFailure = new Promise((_, reject) => {
+    child.once("error", (error) => reject(new Error(`Could not launch browser: ${error.message}`)));
+    child.once("exit", (code, signal) => reject(new Error(`Browser exited before startup completed (code=${code}, signal=${signal}). Check the profile and port.`)));
+  });
+  await Promise.race([waitForEndpoint(options.endpoint), startupFailure]);
+  // A named profile launch reports after the profile is verified
+  if (options.profile) return;
   console.log(`opened=${url}`);
   console.log(`mode=${options.headless ? "headless" : "headed"}`);
   console.log(`endpoint=${options.endpoint}`);
@@ -329,6 +358,10 @@ export async function main() {
   if (options.help || options.command === "help") {
     console.log(formatHelp());
     return;
+  }
+
+  if (options.profile && !["open", "info", "goto", "click-text", "click-selector", "fill-selector", "screenshot", "eval"].includes(options.command)) {
+    throw new Error("--profile is supported only on browser commands. Use br0wser profile create <name> to create a profile.");
   }
 
   if (options.command === "install") {
@@ -345,47 +378,88 @@ export async function main() {
     return;
   }
 
+  if (options.command === "profile") {
+    if (options.args[0] !== "create" || options.args.length !== 2) {
+      throw new Error("Use: br0wser profile create <name>");
+    }
+    const name = options.args[1];
+    const directory = resolveProfileDirectory(name, true);
+    console.log(`profile=${name}`);
+    console.log(`user-data-dir=${directory}`);
+    return;
+  }
+
+  if (options.profile) {
+    if (options.endpoint || options.userDataDir) {
+      throw new Error("--profile cannot be combined with --endpoint/CDP_ENDPOINT or --user-data-dir/CDP_USER_DATA_DIR.");
+    }
+    const port = options.chromePort || "9222";
+    if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
+      throw new Error("Named profiles require a Chrome port from 1 through 65535.");
+    }
+    options.chromePort = String(Number(port));
+    options.userDataDir = resolveProfileDirectory(options.profile);
+  }
+
   options.endpoint = resolveEndpoint(options);
 
   if (options.command === "open") {
     const url = options.args[0] || "about:blank";
-    if (await isEndpointReachable(options.endpoint)) {
-      let browser;
-      try {
-        browser = await chromium.connectOverCDP(options.endpoint);
-        const pages = getPages(browser);
-        const context = browser.contexts()[0];
-        if (!context) {
-          throw new Error("No browser context found in the attached browser.");
-        }
-        const page = pages.length > 0 ? selectPage(pages, options.pageUrl) : await context.newPage();
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: ACTION_TIMEOUT_MS });
-        console.log(`opened=${url}`);
-        console.log(`mode=existing-session`);
-        console.log(`endpoint=${options.endpoint}`);
-        console.log(`selected=${await page.title()} :: ${page.url()}`);
-      } finally {
-        if (browser) {
-          await browser.close();
-        }
-      }
-      return;
+    const reachable = options.profile
+      ? await isLocalPortOccupied(Number(options.chromePort))
+      : await isEndpointReachable(options.endpoint);
+    if (!reachable) {
+      if (options.profile) requireUnusedProfile(options.userDataDir);
+      await launchDebugBrowser(options, options.profile ? "about:blank" : url);
+      if (!options.profile) return;
     }
 
-    await launchDebugBrowser(options, url);
+    let browser;
+    try {
+      browser = await chromium.connectOverCDP(options.endpoint, { timeout: ENDPOINT_WAIT_MS });
+      if (options.profile) await verifyProfileDirectory(browser, options.userDataDir);
+      const pages = getPages(browser);
+      const context = browser.contexts()[0];
+      if (!context) throw new Error("No browser context found in the attached browser.");
+      const page = pages.length > 0 ? selectPage(pages, options.pageUrl) : await context.newPage();
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: ACTION_TIMEOUT_MS });
+      console.log(`opened=${url}`);
+      console.log(`mode=${reachable ? "existing-session" : options.headless ? "headless" : "headed"}`);
+      console.log(`endpoint=${options.endpoint}`);
+      if (options.profile) {
+        console.log(`profile=${options.profile}`);
+        console.log(`user-data-dir=${options.userDataDir}`);
+      }
+      console.log(`selected=${await page.title()} :: ${page.url()}`);
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
+    }
     return;
   }
 
-  await verifyEndpoint(options.endpoint);
+  if (options.profile) {
+    if (!await isLocalPortOccupied(Number(options.chromePort))) {
+      throw new Error(`No browser is listening at ${options.endpoint}. Use br0wser --profile ${options.profile} --chrome-port ${options.chromePort} open <url>.`);
+    }
+  } else {
+    await verifyEndpoint(options.endpoint);
+  }
   let browser;
   try {
-    browser = await chromium.connectOverCDP(options.endpoint);
+    browser = await chromium.connectOverCDP(options.endpoint, { timeout: ENDPOINT_WAIT_MS });
+    if (options.profile) await verifyProfileDirectory(browser, options.userDataDir);
     const pages = getPages(browser);
     const page = selectPage(pages, options.pageUrl);
 
     switch (options.command) {
       case "info": {
         console.log(`endpoint=${options.endpoint}`);
+        if (options.profile) {
+          console.log(`profile=${options.profile}`);
+          console.log(`user-data-dir=${options.userDataDir}`);
+        }
         console.log(`pages=${pages.length}`);
         for (const [index, currentPage] of pages.entries()) {
           console.log(`[${index}] ${await currentPage.title()} :: ${currentPage.url()}`);

@@ -4,7 +4,7 @@
   "author": "Albro3459",
   "license": "MIT",
   "type": "module",
-  "description": "Local CDP helper for attaching to or launching a persistent debug browser",
+  "description": "Small agent-focused CLI for launching and reconnecting to persistent Chrome sessions",
   "keywords": [
     "browser",
     "cdp",
@@ -27,6 +27,9 @@
   },
   "scripts": {
     "version:update": "npm version patch --no-git-tag-version",
-    "deploy": "npm publish --access=public"
+    "deploy": "npm publish --access=public",
+    "test": "node --test test/profile-cli.test.js test/profile-verification.test.js",
+    "test:browser": "node --test test/profile-browser.test.js",
+    "check": "node --check scripts/br0wser.js && node --check scripts/profiles.js"
   }
 }
