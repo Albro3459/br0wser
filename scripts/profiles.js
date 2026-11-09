@@ -72,45 +72,21 @@ export const isLocalPortOccupied = (port) => new Promise((resolve, reject) => {
   });
 });
 
-export const withTimeout = async (operation, timeout, message) => {
-  let timer;
+export const verifyProfileDirectory = async (browser, directory) => {
+  // Chrome links SingletonLock to <hostname>-<pid> of the browser that owns the directory
+  let lockOwner;
   try {
-    return await Promise.race([
-      operation,
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeout);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
+    lockOwner = fs.readlinkSync(path.join(directory, "SingletonLock"));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    throw new Error(`Profile directory mismatch. No running Chrome owns ${directory}. Check --profile and --chrome-port.`);
   }
-};
+  const lockPid = Number(lockOwner.slice(lockOwner.lastIndexOf("-") + 1));
 
-export const verifyProfileDirectory = async (browser, directory, timeout) => {
-  const context = browser.contexts()[0];
-  if (!context) throw new Error("No persistent browser context found for profile verification.");
-
-  let page;
-  const pendingPage = context.newPage();
-  try {
-    await withTimeout((async () => {
-      page = await pendingPage;
-      await page.goto("chrome://version", { waitUntil: "domcontentloaded", timeout });
-      const profilePath = (await page.locator("#profile_path").textContent({ timeout }))?.trim();
-      if (!profilePath || !path.isAbsolute(profilePath)) {
-        throw new Error("Chrome did not report an absolute profile path. Cannot verify the requested profile.");
-      }
-      const actualDirectory = fs.realpathSync(path.dirname(profilePath));
-      if (actualDirectory !== directory) {
-        throw new Error(`Profile directory mismatch. Requested ${directory}, connected browser uses ${actualDirectory}. Check --profile and --chrome-port.`);
-      }
-    })(), timeout, "Profile verification timed out before any existing page was used.");
-  } finally {
-    if (page) {
-      await withTimeout(page.close(), timeout, "Could not close the profile verification tab before timeout. No command was performed.");
-    } else {
-      // A timed-out creation can still finish while the connection is open
-      pendingPage.then((latePage) => latePage.close()).catch(() => {});
-    }
+  const session = await browser.newBrowserCDPSession();
+  const { processInfo } = await session.send("SystemInfo.getProcessInfo");
+  const browserPid = processInfo.find((info) => info.type === "browser")?.id;
+  if (browserPid !== lockPid) {
+    throw new Error(`Profile directory mismatch. The connected browser (pid ${browserPid}) does not own ${directory} (locked by pid ${lockPid}). Check --profile and --chrome-port.`);
   }
 };

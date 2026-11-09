@@ -14,7 +14,6 @@ import {
   requireUnusedProfile,
   isLocalPortOccupied,
   verifyProfileDirectory,
-  withTimeout,
 } from "./profiles.js";
 
 const ACTION_TIMEOUT_MS = Number(process.env.BROWSER_ACTION_TIMEOUT_MS || "10000");
@@ -343,12 +342,9 @@ const launchDebugBrowser = async (options, url) => {
     child.once("error", (error) => reject(new Error(`Could not launch browser: ${error.message}`)));
     child.once("exit", (code, signal) => reject(new Error(`Browser exited before startup completed (code=${code}, signal=${signal}). Check the profile and port.`)));
   });
-  const ready = Promise.race([waitForEndpoint(options.endpoint), startupFailure]);
-  if (options.profile) {
-    await withTimeout(ready, ENDPOINT_WAIT_MS, `Browser startup timed out at ${options.endpoint}`);
-    return;
-  }
-  await ready;
+  await Promise.race([waitForEndpoint(options.endpoint), startupFailure]);
+  // A named profile launch reports after the profile is verified
+  if (options.profile) return;
   console.log(`opened=${url}`);
   console.log(`mode=${options.headless ? "headless" : "headed"}`);
   console.log(`endpoint=${options.endpoint}`);
@@ -383,7 +379,7 @@ export async function main() {
   }
 
   if (options.command === "profile") {
-    if (options.profile || options.args[0] !== "create" || options.args.length !== 2) {
+    if (options.args[0] !== "create" || options.args.length !== 2) {
       throw new Error("Use: br0wser profile create <name>");
     }
     const name = options.args[1];
@@ -400,9 +396,6 @@ export async function main() {
     const port = options.chromePort || "9222";
     if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
       throw new Error("Named profiles require a Chrome port from 1 through 65535.");
-    }
-    if (![ACTION_TIMEOUT_MS, ENDPOINT_WAIT_MS].every((timeout) => Number.isFinite(timeout) && timeout > 0)) {
-      throw new Error("Browser action and endpoint timeouts must be positive numbers.");
     }
     options.chromePort = String(Number(port));
     options.userDataDir = resolveProfileDirectory(options.profile);
@@ -423,8 +416,8 @@ export async function main() {
 
     let browser;
     try {
-      browser = await chromium.connectOverCDP(options.endpoint, options.profile ? { timeout: ENDPOINT_WAIT_MS } : {});
-      if (options.profile) await verifyProfileDirectory(browser, options.userDataDir, ACTION_TIMEOUT_MS);
+      browser = await chromium.connectOverCDP(options.endpoint, { timeout: ENDPOINT_WAIT_MS });
+      if (options.profile) await verifyProfileDirectory(browser, options.userDataDir);
       const pages = getPages(browser);
       const context = browser.contexts()[0];
       if (!context) throw new Error("No browser context found in the attached browser.");
@@ -440,9 +433,7 @@ export async function main() {
       console.log(`selected=${await page.title()} :: ${page.url()}`);
     } finally {
       if (browser) {
-        const disconnect = browser.close();
-        if (options.profile) await withTimeout(disconnect, ACTION_TIMEOUT_MS, "Timed out disconnecting from the browser.");
-        else await disconnect;
+        await browser.close();
       }
     }
     return;
@@ -457,8 +448,8 @@ export async function main() {
   }
   let browser;
   try {
-    browser = await chromium.connectOverCDP(options.endpoint, options.profile ? { timeout: ENDPOINT_WAIT_MS } : {});
-    if (options.profile) await verifyProfileDirectory(browser, options.userDataDir, ACTION_TIMEOUT_MS);
+    browser = await chromium.connectOverCDP(options.endpoint, { timeout: ENDPOINT_WAIT_MS });
+    if (options.profile) await verifyProfileDirectory(browser, options.userDataDir);
     const pages = getPages(browser);
     const page = selectPage(pages, options.pageUrl);
 
@@ -519,9 +510,8 @@ export async function main() {
     }
   } finally {
     if (browser) {
-      const disconnect = browser.close();
-      if (options.profile) await withTimeout(disconnect, ACTION_TIMEOUT_MS, "Timed out disconnecting from the browser.");
-      else await disconnect;
+      // Since the browser was started by the user, this actually simply disconnects at the end of the command and exits cleanly
+      await browser.close();
     }
   }
 }

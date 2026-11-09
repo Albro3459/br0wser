@@ -17,6 +17,10 @@ const profileRoot = path.join(home, ".br0wser", "profiles");
 const chromePath = process.env.BROWSER_CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const execFileAsync = promisify(execFile);
 
+// With HOME redirected, Chrome finds no login keychain and macOS offers to reset it
+const chromeLauncher = path.join(home, "chrome-mock-keychain");
+fs.writeFileSync(chromeLauncher, `#!/bin/sh\nexec "${chromePath}" --use-mock-keychain "$@"\n`, { mode: 0o755 });
+
 const runCli = async (args, env = {}) => {
   try {
     const result = await execFileAsync(process.execPath, [cliPath, ...args], {
@@ -26,7 +30,7 @@ const runCli = async (args, env = {}) => {
       env: {
         ...process.env,
         HOME: home,
-        BROWSER_CHROME_PATH: chromePath,
+        BROWSER_CHROME_PATH: chromeLauncher,
         CDP_ENDPOINT: "",
         CDP_CHROME_PORT: "",
         CDP_PAGE_URL: "",
