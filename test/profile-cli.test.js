@@ -63,6 +63,14 @@ test("named browser commands reject conflicting selectors and port values before
   }
 });
 
+test("options after the command are rejected", () => {
+  for (const args of [["info", "--profile", "team"], ["open", "about:blank", "--profile", "team"], ["goto", "about:blank", "--chrome-port", "9333"]]) {
+    const result = runCli(args, { BROWSER_CHROME_PATH: path.join(home, "must-not-launch") });
+    assert.notEqual(result.status, 0, `${args.join(" ")} unexpectedly succeeded`);
+    assert.match(result.stderr, /before the command/);
+  }
+});
+
 test("named command reports missing profile and creation hint", { skip: !supported }, () => {
   const result = runCli(["--profile", "missing", "info"]);
   assert.notEqual(result.status, 0);

@@ -20,6 +20,7 @@ import {
 const ACTION_TIMEOUT_MS = Number(process.env.BROWSER_ACTION_TIMEOUT_MS || "10000");
 const ENDPOINT_WAIT_MS = Number(process.env.BROWSER_ENDPOINT_WAIT_MS || "10000");
 const ENDPOINT_WAIT_STEP_MS = 250;
+const GLOBAL_OPTIONS = ["--endpoint", "--chrome-port", "--page-url", "--headless", "--headed", "--user-data-dir", "--profile"];
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
 const PACKAGE_ROOT = path.resolve(SCRIPT_DIR, "..");
@@ -153,6 +154,11 @@ const parseArgs = (argv) => {
     }
     result.command = value;
     result.args = argv.slice(index + 1);
+    // A trailing option would be read as a plain argument and silently ignored
+    const misplaced = result.args.find((arg) => GLOBAL_OPTIONS.includes(arg));
+    if (misplaced) {
+      throw new Error(`Put ${misplaced} before the command: br0wser [options] ${value} [args]`);
+    }
     break;
   }
 

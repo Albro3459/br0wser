@@ -51,7 +51,7 @@ export const requireUnusedProfile = (directory) => {
       if (error.code === "ENOENT") continue;
       throw new Error(`Cannot inspect profile entry ${name}: ${error.message}`);
     }
-    throw new Error(`Profile is in use or has unresolved Chrome state (${name}). Check its existing browser before launching on another port. Close that browser or resolve the stale state, then retry.`);
+    throw new Error(`Profile is in use or Chrome left a stale lock (${name}). If Chrome is running on this profile, use its port or close it. If Chrome crashed, delete SingletonLock, SingletonSocket, and SingletonCookie from ${directory}, then retry.`);
   }
 };
 
