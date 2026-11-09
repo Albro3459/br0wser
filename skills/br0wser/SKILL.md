@@ -1,6 +1,6 @@
 ---
 name: "br0wser"
-description: "Launch or reconnect to persistent Chrome/Chromium sessions over CDP. Use an optional named profile to reuse browser data across tasks."
+description: "Use when a task needs to launch Chrome/Chromium or reconnect to a persistent Chrome/Chromium session over CDP, including a browser started by a debugger. Optional named profiles reuse browser data across tasks."
 ---
 
 # br0wser
@@ -24,7 +24,9 @@ br0wser --profile research --chrome-port 9223 info
 br0wser --profile research --chrome-port 9223 --page-url example.com eval "location.href"
 ```
 
-Named profiles use dedicated directories under `~/.br0wser/profiles/` and are currently supported on macOS. They verify the browser's data directory before page actions. Verification opens and closes a temporary `chrome://version` tab, which can briefly affect browser focus. It verifies the directory, not the signed-in website account. A new profile may need sign-in.
+Named profiles use dedicated directories under `~/.br0wser/profiles/` and are currently supported on macOS. Before page actions, br0wser confirms that the connected browser owns the profile directory. The check opens no tab. It verifies the directory, not the signed-in website account. A new profile may need sign-in.
+
+Put options before the command. An option after the command is an error.
 
 Without `--profile`, use the existing explicit `--user-data-dir` or endpoint workflow. Keep site-specific login, API access, and saved data instructions in the project skill.
 

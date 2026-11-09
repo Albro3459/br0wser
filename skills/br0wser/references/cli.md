@@ -1,6 +1,6 @@
 # CLI reference
 
-Global options go before the command. The default local Chrome debug port is `9222`.
+Global options go before the command. An option placed after the command is an error. The default local Chrome debug port is `9222`.
 
 To launch, set `BROWSER_CHROME_PATH` to an installed Chrome/Chromium executable or have Playwright's Chromium installed. The npm package includes the Playwright library and does not download a browser binary. Attach-only commands use the already running browser.
 
@@ -16,11 +16,11 @@ A profile name contains lowercase letters, digits, hyphens, or underscores, and 
 
 Supply the profile and port on every command. A missing profile is an error; create it explicitly when you intend to start a new session. Named profiles are currently supported on macOS. They cannot be combined with `--user-data-dir` or `--endpoint`, including `CDP_USER_DATA_DIR` or `CDP_ENDPOINT` environment settings.
 
-When attaching, br0wser checks the actual user data directory before it uses existing pages. It opens a temporary `chrome://version` page and closes that page after checking. The tab may briefly affect focus. If the profile cannot be verified, the command stops.
+Before it uses existing pages, br0wser checks that the connected browser owns the profile directory. It asks the browser for its process ID over CDP and compares that to the owner of Chrome's `SingletonLock` in the directory. The check opens no tab and does not change focus. If the profile cannot be verified, the command stops.
 
-Before launching into a free port, br0wser refuses to use a profile directory that contains a Chrome singleton lock, socket, or cookie entry. If Chrome is already using the profile on another port, use that session's configured port. Resolve stale entries outside br0wser; it does not remove Chrome locks.
+Before launching into a free port, br0wser refuses to use a profile directory that contains a Chrome singleton lock, socket, or cookie entry. If Chrome is already using the profile on another port, use that session's configured port. A crash or force quit can leave stale entries behind. After confirming no Chrome is running on the profile, delete `SingletonLock`, `SingletonSocket`, and `SingletonCookie` from the profile directory. br0wser does not remove Chrome locks itself.
 
-Named profiles assume a trusted local machine and a local filesystem. The metadata UI is internal to Chrome; an unreadable path stops the command. Lock preflight cannot reserve a directory against concurrent Chrome launches. A racing launch may still open an extra blank tab, but the requested URL is sent only after verification. Remote and forwarded endpoints are outside this mode.
+Named profiles assume a trusted local machine and a local filesystem. Lock preflight cannot reserve a directory against concurrent Chrome launches. A racing launch may still open an extra blank tab, but the requested URL is sent only after verification. Remote and forwarded endpoints are outside this mode.
 
 ## Options
 

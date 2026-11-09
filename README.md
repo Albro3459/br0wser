@@ -38,7 +38,9 @@ br0wser --profile research --chrome-port 9223 --page-url example.com eval "locat
 
 Named profile directories live at `~/.br0wser/profiles/<name>`. Profile names use lowercase letters and digits, with optional hyphens and underscores. Chrome creates the profile data when first launched. A profile name selects a dedicated data directory; it does not select a Chrome account or guarantee a site is signed in.
 
-The profile and port are caller supplied each time. `br0wser` does not save a current profile, profile registry, or port mapping. Named profile verification is currently supported on macOS. It checks the connected browser's data directory before acting, using a temporary Chrome metadata tab that may briefly affect browser focus. Existing tabs and the browser remain open.
+The profile and port are caller supplied each time. `br0wser` does not save a current profile, profile registry, or port mapping. Named profiles are currently supported on macOS. Before acting, `br0wser` confirms that the connected browser owns the profile directory by matching the browser's process ID to Chrome's lock in that directory. The check opens no tab and leaves focus alone.
+
+Options go before the command. `br0wser open https://example.com --profile research` is an error.
 
 ## Existing sessions
 
@@ -50,6 +52,35 @@ br0wser --chrome-port 9222 info
 ```
 
 The default port is `9222`. Use `--page-url` to prefer a page whose URL contains the given fragment. Read `info` first when several pages may be open.
+
+## VS Code example
+
+If VS Code launches Chrome with a remote debugging port, `br0wser` can join that same session. This is useful when an agent needs the exact browser instance your debugger owns.
+
+Example launch config in your project's `.vscode/launch.json`:
+
+```json
+{
+  "name": "Launch Chrome",
+  "type": "pwa-chrome",
+  "request": "launch",
+  "url": "http://localhost:4200",
+  "webRoot": "${workspaceFolder}/client",
+  "runtimeArgs": [
+    "--remote-debugging-port=9222"
+  ]
+}
+```
+
+Once that browser is running, your agent can connect:
+
+```bash
+br0wser --chrome-port 9222 info
+br0wser --chrome-port 9222 --page-url localhost:4200 eval "location.href"
+br0wser --chrome-port 9222 --page-url localhost:4200 screenshot debug-session.png
+```
+
+Provide the [VsCodeDebugger-MCP](https://github.com/Albro3459/VsCodeDebugger-MCP) to your agent to query and run your VS Code launch configs. If a click appears to hang during a debugger-driven flow, check whether execution is paused at a breakpoint.
 
 ## Commands
 

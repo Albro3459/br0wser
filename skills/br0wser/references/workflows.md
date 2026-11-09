@@ -14,9 +14,9 @@ br0wser --profile research --chrome-port 9223 --page-url example.com eval "locat
 
 Use headed Chrome when a person needs to sign in. Login and MFA state stays in Chrome's profile directory. A later browser launch may still require sign-in again if the site session expires.
 
-Named profiles resolve under `~/.br0wser/profiles/` and currently work on macOS. On reconnect, br0wser verifies the browser's data directory through a temporary `chrome://version` tab before using existing pages. It closes only the tab it created. The check may briefly affect focus and does not verify which account a website has signed in.
+Named profiles resolve under `~/.br0wser/profiles/` and currently work on macOS. On reconnect, br0wser verifies that the browser on the port owns the profile directory before using existing pages. The check opens no tab and does not verify which account a website has signed in.
 
-If a named profile is missing, create it explicitly. If its directory has Chrome singleton entries while the requested port is free, br0wser stops to avoid Chrome forwarding a launch request into another session. Check the intended browser and port or resolve stale entries before retrying.
+If a named profile is missing, create it explicitly. If its directory has Chrome singleton entries while the requested port is free, br0wser stops to avoid Chrome forwarding a launch request into another session. Check the intended browser and port before retrying. If Chrome crashed and nothing is running on the profile, delete `SingletonLock`, `SingletonSocket`, and `SingletonCookie` from the profile directory.
 
 ## Use an existing browser
 
@@ -40,6 +40,29 @@ br0wser --chrome-port <port> --page-url localhost:4200 screenshot debug-session.
 ```
 
 Keep interactions on the intended page. If an action stalls, check whether execution is paused at a breakpoint.
+
+## Troubleshooting
+
+When a selector times out, look at the page before changing the selector:
+
+```bash
+br0wser --chrome-port <port> info
+br0wser --chrome-port <port> --page-url <url-fragment> screenshot selector-timeout.png
+br0wser --chrome-port <port> --page-url <url-fragment> eval "Array.from(document.querySelectorAll('input,button')).map((el, index) => ({ index, tag: el.tagName, text: el.textContent?.trim() || '', name: el.getAttribute('name'), id: el.id, placeholder: el.getAttribute('placeholder') }))"
+br0wser --chrome-port <port> --page-url <url-fragment> click-selector '<real-selector>'
+```
+
+When a field still looks empty after `fill-selector`, or validation waits for the input to lose focus, read the value back and blur the page:
+
+```bash
+br0wser --chrome-port <port> --page-url <url-fragment> eval "document.querySelector('<selector>').value"
+br0wser --chrome-port <port> --page-url <url-fragment> click-selector 'body'
+```
+
+- If a click prints success but the page seems unchanged, verify with `info` or `eval "location.href"`.
+- If a repeated label such as `Continue` is ambiguous, switch from `click-text` to `click-selector`.
+- Prefer stable hooks such as `data-test`, `aria-label`, `href`, or placeholders over repeated text.
+- If a command stalls during a debug run, a breakpoint may have paused the page.
 
 ## Notes
 
