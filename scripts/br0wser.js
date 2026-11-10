@@ -50,6 +50,7 @@ const formatHelp = () => {
     "  br0wser install --skills <claude|codex>",
     "  br0wser profile create <name>",
     "  br0wser --help",
+    "  br0wser --version",
     "",
     "Options:",
     "  --endpoint <url>        Connect directly to a CDP endpoint",
@@ -60,6 +61,7 @@ const formatHelp = () => {
     "  --user-data-dir <path>  Use a dedicated browser profile when launching",
     "  --profile <name>        Verify a named persistent profile (macOS only)",
     "  -h, --help              Show this help",
+    "  -v, --version           Show the installed version",
     "",
     "Commands:",
     "  open [url]              Launch or reuse a browser and navigate to a URL",
@@ -105,12 +107,17 @@ const parseArgs = (argv) => {
     command: "info",
     args: [],
     help: false,
+    version: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--help" || value === "-h") {
       result.help = true;
+      continue;
+    }
+    if (value === "--version" || value === "-v") {
+      result.version = true;
       continue;
     }
     if (value === "--endpoint") {
@@ -357,6 +364,11 @@ export async function main() {
 
   if (options.help || options.command === "help") {
     console.log(formatHelp());
+    return;
+  }
+
+  if (options.version) {
+    console.log(JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8")).version);
     return;
   }
 

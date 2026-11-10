@@ -32,6 +32,7 @@ Named profiles assume a trusted local machine and a local filesystem. Lock prefl
 - `--headless`: launch headless when `open` starts a browser.
 - `--headed`: launch headed when `open` starts a browser.
 - `--help`, `-h`: print CLI help.
+- `--version`, `-v`: print the installed version.
 
 Endpoint resolution without a named profile follows this order: `--endpoint`, `CDP_ENDPOINT`, `--chrome-port`, `CDP_CHROME_PORT`, then `9222`.
 
