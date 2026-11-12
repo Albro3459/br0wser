@@ -15,16 +15,21 @@ If the CLI is unavailable, install it once with `npm install -g @albro3459/br0ws
 2. Use `info` to inspect an existing session. Use `open` when the browser needs to launch or navigate.
 3. For a new named session, create its profile once. Pass the same profile and port on every later command.
 4. Check the page list, choose the intended page, and verify important changes after navigation or interaction.
-5. Leave the browser running. Let the user complete sign-in or MFA when needed.
+5. Use `--background` on macOS when launching a headed browser while the user works in another app.
+6. For sign-in or MFA, run `focus` on the intended page and pause automation while the user takes over. Resume on the same browser session when they are done.
+7. Leave the browser running between commands.
 
 ```bash
 br0wser profile create research
-br0wser --profile research --chrome-port 9223 open https://example.com
+br0wser --profile research --chrome-port 9223 --background open https://example.com
 br0wser --profile research --chrome-port 9223 info
 br0wser --profile research --chrome-port 9223 --page-url example.com eval "location.href"
+br0wser --profile research --chrome-port 9223 --page-url example.com focus
 ```
 
 Named profiles use dedicated directories under `~/.br0wser/profiles/` and are currently supported on macOS. Before page actions, br0wser confirms that the connected browser owns the profile directory. The check opens no tab. It verifies the directory, not the signed-in website account. A new profile may need sign-in.
+
+`--background` is optional on macOS. It avoids asking Chrome to take focus when launching a headed browser or creating a page when none exists. It does not force Chrome to stay behind other apps. Later interactions need no flag. Existing browser launch settings stay in effect. Site popups and native dialogs may still take focus.
 
 Put options before the command. An option after the command is an error.
 

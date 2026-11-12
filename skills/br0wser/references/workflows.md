@@ -6,13 +6,21 @@ Create a profile when a new dedicated browser session is intended. Then pass the
 
 ```bash
 br0wser profile create research
-br0wser --profile research --chrome-port 9223 open https://example.com
+br0wser --profile research --chrome-port 9223 --background open https://example.com
 br0wser --profile research --chrome-port 9223 info
 br0wser --profile research --chrome-port 9223 --page-url example.com click-selector 'button[aria-label="Continue"]'
 br0wser --profile research --chrome-port 9223 --page-url example.com eval "location.href"
 ```
 
 Use headed Chrome when a person needs to sign in. Login and MFA state stays in Chrome's profile directory. A later browser launch may still require sign-in again if the site session expires.
+
+For a handoff while the user works in another app, launch headed Chrome with `--background`. When they need to sign in or inspect the page, run `focus` for that page and pause browser actions until they are done:
+
+```bash
+br0wser --profile research --chrome-port 9223 --page-url example.com focus
+```
+
+Continue with the same profile and port after the handoff. `--background` is supported on macOS. It avoids requesting focus when launching Chrome or creating a page when none exists. Chrome can still come forward if the user activates it or a site or native dialog requests focus. Do not combine it with `--headless`. Existing sessions keep their launch settings.
 
 Named profiles resolve under `~/.br0wser/profiles/` and currently work on macOS. On reconnect, br0wser verifies that the browser on the port owns the profile directory before using existing pages. The check opens no tab and does not verify which account a website has signed in.
 

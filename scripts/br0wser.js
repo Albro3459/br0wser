@@ -19,7 +19,7 @@ import {
 const ACTION_TIMEOUT_MS = Number(process.env.BROWSER_ACTION_TIMEOUT_MS || "10000");
 const ENDPOINT_WAIT_MS = Number(process.env.BROWSER_ENDPOINT_WAIT_MS || "10000");
 const ENDPOINT_WAIT_STEP_MS = 250;
-const GLOBAL_OPTIONS = ["--endpoint", "--chrome-port", "--page-url", "--headless", "--headed", "--user-data-dir", "--profile"];
+const GLOBAL_OPTIONS = ["--endpoint", "--chrome-port", "--page-url", "--headless", "--headed", "--background", "--user-data-dir", "--profile"];
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
 const PACKAGE_ROOT = path.resolve(SCRIPT_DIR, "..");
@@ -58,6 +58,7 @@ const formatHelp = () => {
     "  --page-url <fragment>   Select the first page whose URL includes the fragment",
     "  --headless              Launch a headless browser for open",
     "  --headed                Force headed mode for open",
+    "  --background            Open headed Chrome without taking focus (macOS only)",
     "  --user-data-dir <path>  Use a dedicated browser profile when launching",
     "  --profile <name>        Verify a named persistent profile (macOS only)",
     "  -h, --help              Show this help",
@@ -66,6 +67,7 @@ const formatHelp = () => {
     "Commands:",
     "  open [url]              Launch or reuse a browser and navigate to a URL",
     "  info                    List pages in the connected browser",
+    "  focus                   Bring the selected page forward for user interaction",
     "  profile create <name>   Create a named profile without launching Chrome",
     "  goto <url>              Navigate the selected page",
     "  click-text <text>       Click the first exact text match",
@@ -102,6 +104,7 @@ const parseArgs = (argv) => {
     chromePort: process.env.CDP_CHROME_PORT || "",
     pageUrl: process.env.CDP_PAGE_URL || "",
     headless: false,
+    background: false,
     userDataDir: process.env.CDP_USER_DATA_DIR || "",
     profile: "",
     command: "info",
@@ -141,6 +144,10 @@ const parseArgs = (argv) => {
     }
     if (value === "--headed") {
       result.headless = false;
+      continue;
+    }
+    if (value === "--background") {
+      result.background = true;
       continue;
     }
     if (value === "--profile") {
@@ -324,6 +331,57 @@ const isEndpointReachable = async (endpoint) => {
   }
 };
 
+const resolveBrowserApp = (executablePath) => {
+  const executable = fs.realpathSync(executablePath);
+  const executableDirectory = path.dirname(executable);
+  const contentsDirectory = path.dirname(executableDirectory);
+  const appDirectory = path.dirname(contentsDirectory);
+  if (path.basename(executableDirectory) !== "MacOS" || path.basename(contentsDirectory) !== "Contents" || !appDirectory.endsWith(".app")) {
+    throw new Error("--background requires a Chrome/Chromium executable inside an .app/Contents/MacOS directory. Set BROWSER_CHROME_PATH to that executable.");
+  }
+  return appDirectory;
+};
+
+// A page closing during inspection can fail its CDP call before Playwright reports the close
+const pageClosed = async (page) => {
+  if (!page.isClosed()) await page.waitForEvent("close", { timeout: 1000 }).catch(() => {});
+  return page.isClosed();
+};
+
+const createBackgroundPage = async (browser, context) => {
+  const session = await browser.newBrowserCDPSession();
+  let targetId;
+  try {
+    ({ targetId } = await session.send("Target.createTarget", { url: "about:blank", newWindow: true, background: true }));
+  } finally {
+    await session.detach();
+  }
+
+  const deadline = Date.now() + ACTION_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    for (const page of context.pages()) {
+      let pageSession;
+      try {
+        pageSession = await context.newCDPSession(page);
+        const { targetInfo } = await pageSession.send("Target.getTargetInfo");
+        if (targetInfo.targetId === targetId) return page;
+      } catch (error) {
+        if (!await pageClosed(page)) throw error;
+      } finally {
+        if (pageSession) {
+          try {
+            await pageSession.detach();
+          } catch (error) {
+            if (!await pageClosed(page)) throw error;
+          }
+        }
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for background page ${targetId}`);
+};
+
 const launchDebugBrowser = async (options, url) => {
   const chromePort = options.chromePort || "9222";
   const expectedEndpoint = `http://127.0.0.1:${chromePort}`;
@@ -333,25 +391,47 @@ const launchDebugBrowser = async (options, url) => {
 
   const userDataDir = options.userDataDir || path.join(os.tmpdir(), `codex-br0wser-profile-${chromePort}`);
   const executablePath = process.env.BROWSER_CHROME_PATH || chromium.executablePath();
-  const launchArgs = [`--remote-debugging-port=${chromePort}`, `--user-data-dir=${userDataDir}`, url];
+  const launchArgs = [`--remote-debugging-port=${chromePort}`, `--user-data-dir=${userDataDir}`];
+
+  if (options.background) {
+    launchArgs.push(
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--no-startup-window",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
+      "--disable-background-timer-throttling",
+    );
+  } else {
+    launchArgs.push(url);
+  }
 
   if (options.headless) {
     launchArgs.unshift("--headless=new");
   }
 
-  const child = spawn(executablePath, launchArgs, {
+  const launchCommand = options.background ? "/usr/bin/open" : executablePath;
+  const commandArgs = options.background
+    ? ["-g", "-n", "-a", resolveBrowserApp(executablePath), "--args", ...launchArgs]
+    : launchArgs;
+  const child = spawn(launchCommand, commandArgs, {
     detached: true,
-    stdio: "ignore",
+    stdio: options.background ? ["ignore", "ignore", "pipe"] : "ignore",
   });
 
+  let launchError = "";
+  if (child.stderr) child.stderr.on("data", (data) => { launchError += data; });
   child.unref();
   const startupFailure = new Promise((_, reject) => {
     child.once("error", (error) => reject(new Error(`Could not launch browser: ${error.message}`)));
-    child.once("exit", (code, signal) => reject(new Error(`Browser exited before startup completed (code=${code}, signal=${signal}). Check the profile and port.`)));
+    child.once("close", (code, signal) => {
+      if (options.background && code === 0) return;
+      reject(new Error(`Browser launcher exited before startup completed (code=${code}, signal=${signal}). ${launchError.trim() || "Check the profile and port."}`));
+    });
   });
   await Promise.race([waitForEndpoint(options.endpoint), startupFailure]);
   // A named profile launch reports after the profile is verified
-  if (options.profile) return;
+  if (options.profile || options.background) return;
   console.log(`opened=${url}`);
   console.log(`mode=${options.headless ? "headless" : "headed"}`);
   console.log(`endpoint=${options.endpoint}`);
@@ -372,7 +452,15 @@ export async function main() {
     return;
   }
 
-  if (options.profile && !["open", "info", "goto", "click-text", "click-selector", "fill-selector", "screenshot", "eval"].includes(options.command)) {
+  if (options.background) {
+    if (process.platform !== "darwin") throw new Error("--background currently requires macOS.");
+    if (options.headless) throw new Error("--background cannot be combined with --headless. Use headed Chrome for background browsing.");
+    if (!["open", "info", "goto", "click-text", "click-selector", "fill-selector", "screenshot", "eval"].includes(options.command)) {
+      throw new Error("--background is supported only on browser commands that do not request focus.");
+    }
+  }
+
+  if (options.profile && !["open", "info", "focus", "goto", "click-text", "click-selector", "fill-selector", "screenshot", "eval"].includes(options.command)) {
     throw new Error("--profile is supported only on browser commands. Use br0wser profile create <name> to create a profile.");
   }
 
@@ -423,7 +511,7 @@ export async function main() {
     if (!reachable) {
       if (options.profile) requireUnusedProfile(options.userDataDir);
       await launchDebugBrowser(options, options.profile ? "about:blank" : url);
-      if (!options.profile) return;
+      if (!options.profile && !options.background) return;
     }
 
     let browser;
@@ -433,10 +521,12 @@ export async function main() {
       const pages = getPages(browser);
       const context = browser.contexts()[0];
       if (!context) throw new Error("No browser context found in the attached browser.");
-      const page = pages.length > 0 ? selectPage(pages, options.pageUrl) : await context.newPage();
+      const existingPage = pages.length > 0 ? selectPage(pages, options.pageUrl) : null;
+      const page = existingPage || (options.background ? await createBackgroundPage(browser, context) : await context.newPage());
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: ACTION_TIMEOUT_MS });
       console.log(`opened=${url}`);
       console.log(`mode=${reachable ? "existing-session" : options.headless ? "headless" : "headed"}`);
+      if (options.background) console.log("background=true");
       console.log(`endpoint=${options.endpoint}`);
       if (options.profile) {
         console.log(`profile=${options.profile}`);
@@ -466,6 +556,20 @@ export async function main() {
     const page = selectPage(pages, options.pageUrl);
 
     switch (options.command) {
+      case "focus": {
+        const session = await browser.newBrowserCDPSession();
+        try {
+          const { userAgent } = await session.send("Browser.getVersion");
+          if (userAgent.includes("HeadlessChrome")) {
+            throw new Error("Cannot focus a headless browser. Open a headed session for user interaction.");
+          }
+        } finally {
+          await session.detach();
+        }
+        await page.bringToFront();
+        console.log(`focused=${await page.title()} :: ${page.url()}`);
+        break;
+      }
       case "info": {
         console.log(`endpoint=${options.endpoint}`);
         if (options.profile) {
