@@ -1,43 +1,29 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import http from "node:http";
 import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright";
 import {
-  activateApplication,
+  assertNeverFrontmost,
   closeOwnedBrowser,
   createTargetRaceProxy,
   getBrowserPid,
   getTargets,
-  listen,
   makeFixture,
   requireInteractiveDesktop,
   runOk,
+  startPageServer,
   unsupportedReason,
   unusedPort,
-  waitForFrontmost,
-  withFrontmost,
+  watchFrontmost,
+  withoutFrontmost,
 } from "./background-helpers.js";
 
-const startPageServer = async () => {
-  const server = http.createServer((_request, response) => {
-    response.setHeader("Content-Type", "text/html; charset=utf-8");
-    response.end(`<!doctype html>
-<title>Background browser fixture</title>
-<label>Name <input id="name"></label>
-<button id="save" onclick="document.querySelector('#result').textContent = document.querySelector('#name').value">Save</button>
-<button onclick="document.querySelector('#result').textContent = 'reset'">Reset</button>
-<p id="result">empty</p>`);
-  });
-  const port = await listen(server);
-  return { server, url: `http://127.0.0.1:${port}` };
-};
-
+// These tests never activate an app. They only check that the test browser stays out of the front
 for (const named of [false, true]) {
-  test(`background ${named ? "named profile" : "unnamed profile"} launch, interactions, reconnect, and handoff`, { skip: unsupportedReason }, async (t) => {
+  test(`background ${named ? "named profile" : "unnamed profile"} launch, interactions, reconnect, and page creation`, { skip: unsupportedReason }, async (t) => {
     const fixture = makeFixture(named ? "Chromium" : "Google Chrome for Testing");
-    const original = await requireInteractiveDesktop();
+    await requireInteractiveDesktop();
     const port = await unusedPort();
     const endpoint = `http://127.0.0.1:${port}`;
     const directory = named ? path.join(fixture.home, ".br0wser", "profiles", "primary") : path.join(fixture.home, "browser-data");
@@ -50,22 +36,22 @@ for (const named of [false, true]) {
         await closeOwnedBrowser(endpoint, directory);
       } finally {
         await new Promise((resolve) => server.close(resolve));
-        await activateApplication(original.pid);
       }
     });
     if (named) await runOk(fixture, ["profile", "create", "primary"]);
 
-    const opened = await withFrontmost(original, () => runOk(fixture, ["--background", ...options, "open", `${url}/form`]));
-    assert.match(opened.stdout, /opened=/);
-    if (named) assert.match(opened.stdout, /profile=primary/);
+    const launch = await watchFrontmost(() => runOk(fixture, ["--background", ...options, "open", `${url}/form`]));
+    assert.match(launch.result.stdout, /opened=/);
+    if (named) assert.match(launch.result.stdout, /profile=primary/);
     browser = await chromium.connectOverCDP(endpoint);
     const pid = await getBrowserPid(browser);
-    assert.notEqual(pid, original.pid);
+    assertNeverFrontmost(launch.observed, pid);
+    const inBackground = (action) => withoutFrontmost(pid, action);
     const initial = await getTargets(browser);
     assert.equal(initial.length, 1, "A fresh background launch should create one page without a startup window");
     assert.equal(initial[0].url, `${url}/form`);
 
-    await withFrontmost(original, async () => {
+    await inBackground(async () => {
       const info = await runOk(fixture, [...options, "info"]);
       assert.match(info.stdout, /pages=1/);
       const location = await runOk(fixture, [...options, "eval", "location.href"]);
@@ -94,10 +80,10 @@ for (const named of [false, true]) {
 
     const session = await browser.newBrowserCDPSession();
     try {
-      const secondary = await withFrontmost(original, () => session.send("Target.createTarget", {
+      const secondary = await inBackground(() => session.send("Target.createTarget", {
         url: `${url}/secondary`, background: true, newWindow: true,
       }));
-      await withFrontmost(original, () => runOk(fixture, ["--background", ...options, "--page-url", "/secondary", "open", `${url}/reused`]));
+      await inBackground(() => runOk(fixture, ["--background", ...options, "--page-url", "/secondary", "open", `${url}/reused`]));
       const selected = await getTargets(browser);
       assert.equal(selected.length, 2);
       assert.deepEqual(selected.find((target) => target.targetId === secondary.targetId), { targetId: secondary.targetId, url: `${url}/reused` });
@@ -105,7 +91,7 @@ for (const named of [false, true]) {
 
       if (named) {
         await runOk(fixture, ["profile", "create", "wrong"]);
-        await withFrontmost(original, async () => {
+        await inBackground(async () => {
           for (const command of [["open", `${url}/must-not-navigate`], ["focus"]]) {
             const mismatch = await fixture.run(["--profile", "wrong", "--chrome-port", String(port), ...command]);
             assert.notEqual(mismatch.status, 0);
@@ -115,23 +101,9 @@ for (const named of [false, true]) {
         });
       }
 
-      await activateApplication(original.pid);
-      await runOk(fixture, [...options, "--page-url", "/next", "focus"]);
-      await waitForFrontmost(pid);
-      assert.deepEqual(await getTargets(browser), selected, "Handoff should preserve both targets");
-      const handedOff = browser.contexts()[0].pages().find((page) => page.url() === `${url}/next`);
-      assert.ok(handedOff);
-      await handedOff.locator("#name").fill("handoff value");
-      await handedOff.locator("#save").click();
-      await withFrontmost(original, async () => {
-        const resumed = await runOk(fixture, [...options, "--page-url", "/next", "eval", "document.querySelector('#result').textContent"]);
-        assert.equal(JSON.parse(resumed.stdout), "handoff value");
-        assert.deepEqual(await getTargets(browser), selected);
-      });
-
       for (const { targetId } of selected) await session.send("Target.closeTarget", { targetId });
       assert.deepEqual(await getTargets(browser), []);
-      await withFrontmost(original, () => runOk(fixture, ["--background", ...options, "open", `${url}/recreated`]));
+      await inBackground(() => runOk(fixture, ["--background", ...options, "open", `${url}/recreated`]));
       const recreated = await getTargets(browser);
       assert.equal(recreated.length, 1);
       assert.equal(recreated[0].url, `${url}/recreated`);
@@ -141,7 +113,7 @@ for (const named of [false, true]) {
         await session.send("Target.closeTarget", { targetId: recreated[0].targetId });
         const proxy = await createTargetRaceProxy(browser, endpoint);
         try {
-          await withFrontmost(original, () => runOk(fixture, ["--background", "--endpoint", proxy.endpoint, "open", `${url}/target-race`]));
+          await inBackground(() => runOk(fixture, ["--background", "--endpoint", proxy.endpoint, "open", `${url}/target-race`]));
           assert.ok(proxy.competitorId, "The CLI must create a target through CDP");
           const targets = await getTargets(browser);
           assert.equal(targets.length, 2);
@@ -150,6 +122,16 @@ for (const named of [false, true]) {
         } finally {
           await proxy.close();
         }
+
+        for (const { targetId } of await getTargets(browser)) await session.send("Target.closeTarget", { targetId });
+        const closing = await createTargetRaceProxy(browser, endpoint, { closeCompetitorOnInspect: true });
+        try {
+          await inBackground(() => runOk(fixture, ["--background", "--endpoint", closing.endpoint, "open", `${url}/competitor-closed`]));
+          assert.ok(closing.competitorClosed, "The competing page must close while the CLI inspects it");
+          assert.deepEqual((await getTargets(browser)).map((target) => target.url), [`${url}/competitor-closed`]);
+        } finally {
+          await closing.close();
+        }
       }
     } finally {
       await session.detach();
@@ -157,47 +139,37 @@ for (const named of [false, true]) {
   });
 }
 
-for (const headless of [false, true]) {
-  test(`${headless ? "headless" : "default headed"} launch stays usable and focus honors the live browser mode`, { skip: unsupportedReason }, async (t) => {
-    const fixture = makeFixture();
-    const original = await requireInteractiveDesktop();
-    const port = await unusedPort();
-    const endpoint = `http://127.0.0.1:${port}`;
-    const directory = path.join(fixture.home, "browser-data");
-    const options = ["--chrome-port", String(port), "--user-data-dir", directory];
-    const { server, url } = await startPageServer();
-    let browser;
-    t.after(async () => {
-      try {
-        if (browser) await browser.close();
-        await closeOwnedBrowser(endpoint, directory);
-      } finally {
-        await new Promise((resolve) => server.close(resolve));
-        await activateApplication(original.pid);
-      }
-    });
-    const opened = await runOk(fixture, [...(headless ? ["--headless"] : []), ...options, "open", url]);
-    assert.match(opened.stdout, headless ? /mode=headless/ : /mode=headed/);
-    browser = await chromium.connectOverCDP(endpoint);
-    const context = browser.contexts()[0];
-    const page = context.pages()[0] || await context.waitForEvent("page", { timeout: 10000 });
-    await page.waitForURL(url, { waitUntil: "domcontentloaded", timeout: 10000 });
-    const baseline = await getTargets(browser);
-    assert.equal(baseline.length, 1);
-    const value = await runOk(fixture, [...options, "eval", "document.title"]);
-    assert.equal(JSON.parse(value.stdout), "Background browser fixture");
-    if (headless) {
-      await withFrontmost(original, async () => {
-        const focus = await fixture.run([...options, "focus"]);
-        assert.notEqual(focus.status, 0);
-        assert.match(focus.stderr, /headless/i);
-        assert.deepEqual(await getTargets(browser), baseline);
-      });
-    } else {
-      await activateApplication(original.pid);
-      await runOk(fixture, [...options, "focus"]);
-      await waitForFrontmost(await getBrowserPid(browser));
-      assert.deepEqual(await getTargets(browser), baseline);
+test("headless launch stays usable and rejects focus without changing targets", { skip: unsupportedReason }, async (t) => {
+  const fixture = makeFixture();
+  await requireInteractiveDesktop();
+  const port = await unusedPort();
+  const endpoint = `http://127.0.0.1:${port}`;
+  const directory = path.join(fixture.home, "browser-data");
+  const options = ["--chrome-port", String(port), "--user-data-dir", directory];
+  const { server, url } = await startPageServer();
+  let browser;
+  t.after(async () => {
+    try {
+      if (browser) await browser.close();
+      await closeOwnedBrowser(endpoint, directory);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
     }
   });
-}
+  const opened = await runOk(fixture, ["--headless", ...options, "open", url]);
+  assert.match(opened.stdout, /mode=headless/);
+  browser = await chromium.connectOverCDP(endpoint);
+  const context = browser.contexts()[0];
+  const page = context.pages()[0] || await context.waitForEvent("page", { timeout: 10000 });
+  await page.waitForURL(url, { waitUntil: "domcontentloaded", timeout: 10000 });
+  const baseline = await getTargets(browser);
+  assert.equal(baseline.length, 1);
+  const value = await runOk(fixture, [...options, "eval", "document.title"]);
+  assert.equal(JSON.parse(value.stdout), "Background browser fixture");
+  await withoutFrontmost(await getBrowserPid(browser), async () => {
+    const focus = await fixture.run([...options, "focus"]);
+    assert.notEqual(focus.status, 0);
+    assert.match(focus.stderr, /headless/i);
+    assert.deepEqual(await getTargets(browser), baseline);
+  });
+});

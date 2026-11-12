@@ -342,6 +342,12 @@ const resolveBrowserApp = (executablePath) => {
   return appDirectory;
 };
 
+// A page closing during inspection can fail its CDP call before Playwright reports the close
+const pageClosed = async (page) => {
+  if (!page.isClosed()) await page.waitForEvent("close", { timeout: 1000 }).catch(() => {});
+  return page.isClosed();
+};
+
 const createBackgroundPage = async (browser, context) => {
   const session = await browser.newBrowserCDPSession();
   let targetId;
@@ -360,13 +366,13 @@ const createBackgroundPage = async (browser, context) => {
         const { targetInfo } = await pageSession.send("Target.getTargetInfo");
         if (targetInfo.targetId === targetId) return page;
       } catch (error) {
-        if (!page.isClosed()) throw error;
+        if (!await pageClosed(page)) throw error;
       } finally {
         if (pageSession) {
           try {
             await pageSession.detach();
           } catch (error) {
-            if (!page.isClosed()) throw error;
+            if (!await pageClosed(page)) throw error;
           }
         }
       }

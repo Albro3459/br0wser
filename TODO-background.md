@@ -24,11 +24,13 @@ Keep the current headed default. Add an optional headed background mode so an ag
 - [x] Implement option validation, background app launch, target-matched page creation, and the focus command
 - [x] Update README, bundled skill, CLI reference, and handoff workflow with examples and limits
 - [x] Add meaningful CLI regressions and real Chrome functional coverage for background launch, reconnect, interactions, page creation, profile mismatch, and handoff
-- [ ] Verify actual macOS frontmost application during launch and ordinary interactions while another app stays active. Keep this separate from DOM focus assertions
-- [ ] Run syntax checks, existing tests, and the browser integration suite. Tests may launch and close only their own browser sessions
+- [x] Verify actual macOS frontmost application during launch and ordinary interactions while another app stays active. Keep this separate from DOM focus assertions
+- [x] Split real Chrome tests so `test:browser` never takes focus and `test:focus` holds the intentional handoff and headed launches
+- [x] Add a regression for a competing page closing during target inspection
+- [x] Run syntax checks, existing tests, and the browser integration suite. Tests may launch and close only their own browser sessions. Ask before running `test:focus` while the user is working
 - [x] Run `npm run version:update` and verify the local CLI reports the bumped version. Use npm link only if useful
 - [x] Get a secure-account implementation review at 6.1 Sol high. Fix real issues, rerun affected checks, and avoid loops over stylistic nits
-- [ ] Record verification results, commit completed work locally, and leave a clean branch. Never push
+- [x] Record verification results, commit completed work locally, and leave a clean branch. Never push
 
 ## Validation notes
 
@@ -45,3 +47,11 @@ Secure implementation review found one issue: cleanup of a CDP session could fai
 Real background/focus verification is unfinished. The first background launch attempts exceeded the endpoint deadline, then their browsers started later. Both owned test browsers were closed after profile ownership verification. The headed focus assertion found macOS `loginwindow` in front. The headless rejection check passed. The browser fixture now refuses to begin foreground checks on a locked desktop. Investigate launch timing and complete the background suite on an unlocked desktop before treating the feature as fully verified.
 
 User requested stopping while remote, then requested committing this checkpoint. No further GUI tests were run. Remaining unchecked steps are follow-up work after the desktop is available.
+
+Follow-up on an unlocked desktop: the earlier launch timeouts did not reproduce. Background launches connected within the endpoint deadline. An earlier full run, before the split, passed every real Chrome test, including the foreground checks and the focus handoff. Mixed results in other runs came from the user switching apps while the old checks re-activated the original app.
+
+Tests are now split by focus behavior. `npm run test:browser` covers background launch, interactions, reconnect, page reuse, profile mismatch, the target race, and headless focus rejection. It never activates an app and passively asserts that the test browser never becomes frontmost. `npm run test:focus` covers the focus handoff, default headed launch, and named profile browser tests, which bring Chrome forward on purpose.
+
+Closure during inspection: `createBackgroundPage` waits briefly for a page's close event before treating an inspection or detach error as real. The target race proxy can close the competing page when the CLI inspects it. The regression reaches that path but does not force the CDP error to arrive before Playwright's close event.
+
+Validation: syntax checks pass, CLI tests pass with 18 passed and 1 skipped for the platform, and `test:browser` passes all 3 tests. Secure implementation review at 6.1 Sol high found no functional issues. With the desktop free, the full suite passed: `test:focus` passed all 6 tests, including both background handoffs, the default headed focus, and the named profile browser tests. No test browsers were left running.

@@ -167,8 +167,8 @@ export const waitForFrontmost = async (pid) => {
   assert.equal(current.pid, pid, `Expected pid ${pid} in front, found ${current.name} (pid ${current.pid})`);
 };
 
-export const withFrontmost = async (application, action) => {
-  await activateApplication(application.pid);
+// Sample the frontmost app without activating anything, so the user can keep working during the run
+export const watchFrontmost = async (action) => {
   const observed = [];
   let finished = false;
   const monitor = (async () => {
@@ -177,22 +177,80 @@ export const withFrontmost = async (application, action) => {
       await delay(50);
     }
   })();
-  let result;
   try {
-    result = await action();
+    const result = await action();
     await delay(100);
+    return { result, observed };
   } finally {
     finished = true;
     await monitor;
   }
+};
+
+export const assertNeverFrontmost = (observed, pid) => {
   assert.ok(observed.length > 0);
-  assert.deepEqual([...new Set(observed.map((app) => app.pid))], [application.pid],
-    `Background work changed the frontmost application: ${JSON.stringify(observed)}`);
+  assert.deepEqual(observed.filter((app) => app.pid === pid), [],
+    `The test browser (pid ${pid}) came to the front during background work`);
+};
+
+export const withoutFrontmost = async (pid, action) => {
+  const { result, observed } = await watchFrontmost(action);
+  assertNeverFrontmost(observed, pid);
   return result;
 };
 
-// Delay the requested target until a competing blank page reaches the CLI
-export const createTargetRaceProxy = async (browser, endpoint) => {
+export const startPageServer = async () => {
+  const server = http.createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end(`<!doctype html>
+<title>Background browser fixture</title>
+<label>Name <input id="name"></label>
+<button id="save" onclick="document.querySelector('#result').textContent = document.querySelector('#name').value">Save</button>
+<button onclick="document.querySelector('#result').textContent = 'reset'">Reset</button>
+<p id="result">empty</p>`);
+  });
+  const port = await listen(server);
+  return { server, url: `http://127.0.0.1:${port}` };
+};
+
+// Pass each complete WebSocket frame and its parsed text message to onFrame
+const frameReader = (onFrame) => {
+  let pending = Buffer.alloc(0);
+  return (chunk) => {
+    pending = Buffer.concat([pending, chunk]);
+    while (pending.length >= 2) {
+      let length = pending[1] & 127;
+      let offset = 2;
+      if (length === 126) {
+        if (pending.length < 4) return;
+        length = pending.readUInt16BE(2);
+        offset = 4;
+      } else if (length === 127) {
+        if (pending.length < 10) return;
+        length = Number(pending.readBigUInt64BE(2));
+        offset = 10;
+      }
+      const masked = Boolean(pending[1] & 128);
+      const payloadOffset = offset + (masked ? 4 : 0);
+      if (pending.length < payloadOffset + length) return;
+      const frame = pending.subarray(0, payloadOffset + length);
+      pending = pending.subarray(frame.length);
+      let message;
+      if ((frame[0] & 15) === 1) {
+        const payload = Buffer.from(frame.subarray(payloadOffset));
+        if (masked) {
+          for (let index = 0; index < payload.length; index += 1) payload[index] ^= frame[offset + index % 4];
+        }
+        message = JSON.parse(payload.toString());
+      }
+      onFrame(frame, message);
+    }
+  };
+};
+
+// Delay the requested target until a competing blank page reaches the CLI.
+// With closeCompetitorOnInspect, close that page while the CLI inspects it
+export const createTargetRaceProxy = async (browser, endpoint, { closeCompetitorOnInspect = false } = {}) => {
   const version = await new Promise((resolve, reject) => {
     http.get(`${endpoint}/json/version`, (response) => {
       let body = "";
@@ -205,6 +263,7 @@ export const createTargetRaceProxy = async (browser, endpoint) => {
   const sockets = new Set();
   const errors = [];
   let competitorId;
+  let competitorClosed = false;
   const server = http.createServer((_request, response) => {
     response.setHeader("Content-Type", "application/json");
     response.end(JSON.stringify({ ...version, webSocketDebuggerUrl: `ws://127.0.0.1:${server.address().port}${upstreamUrl.pathname}` }));
@@ -222,48 +281,46 @@ export const createTargetRaceProxy = async (browser, endpoint) => {
     });
     upstream.pipe(client);
     client.on("end", () => upstream.end());
-    let pending = Buffer.alloc(0);
+
+    // Map attached sessions to targets so the proxy knows when the competitor is inspected
+    const attachRequests = new Map();
+    const sessionTargets = new Map();
+    const readUpstream = frameReader((_frame, message) => {
+      const targetId = attachRequests.get(message?.id);
+      if (targetId && message.result) sessionTargets.set(message.result.sessionId, targetId);
+    });
+    let handshake = Buffer.alloc(0);
+    upstream.on("data", (chunk) => {
+      if (!handshake) return readUpstream(chunk);
+      handshake = Buffer.concat([handshake, chunk]);
+      const end = handshake.indexOf("\r\n\r\n");
+      if (end === -1) return;
+      const frames = handshake.subarray(end + 4);
+      handshake = null;
+      readUpstream(frames);
+    });
+
     let queue = Promise.resolve();
-    const receive = (chunk) => {
-      pending = Buffer.concat([pending, chunk]);
-      while (pending.length >= 2) {
-        let length = pending[1] & 127;
-        let offset = 2;
-        if (length === 126) {
-          if (pending.length < 4) return;
-          length = pending.readUInt16BE(2);
-          offset = 4;
-        } else if (length === 127) {
-          if (pending.length < 10) return;
-          length = Number(pending.readBigUInt64BE(2));
-          offset = 10;
+    const receive = frameReader((frame, message) => {
+      queue = queue.then(async () => {
+        if (message?.method === "Target.createTarget" && !competitorId) {
+          const target = await control.send("Target.createTarget", { url: "about:blank", background: true, newWindow: true });
+          competitorId = target.targetId;
+          await delay(150);
         }
-        const masked = Boolean(pending[1] & 128);
-        const payloadOffset = offset + (masked ? 4 : 0);
-        if (pending.length < payloadOffset + length) return;
-        const frame = pending.subarray(0, payloadOffset + length);
-        pending = pending.subarray(frame.length);
-        queue = queue.then(async () => {
-          if ((frame[0] & 15) === 1) {
-            const payload = Buffer.from(frame.subarray(payloadOffset));
-            if (masked) {
-              for (let index = 0; index < payload.length; index += 1) payload[index] ^= frame[offset + index % 4];
-            }
-            const message = JSON.parse(payload.toString());
-            if (message.method === "Target.createTarget" && !competitorId) {
-              const target = await control.send("Target.createTarget", { url: "about:blank", background: true, newWindow: true });
-              competitorId = target.targetId;
-              await delay(150);
-            }
-          }
-          upstream.write(frame);
-        }).catch((error) => {
-          errors.push(error);
-          client.destroy();
-          upstream.destroy();
-        });
-      }
-    };
+        if (message?.method === "Target.attachToTarget") attachRequests.set(message.id, message.params.targetId);
+        if (closeCompetitorOnInspect && !competitorClosed && message?.method === "Target.getTargetInfo"
+          && competitorId && sessionTargets.get(message.sessionId) === competitorId) {
+          competitorClosed = true;
+          await control.send("Target.closeTarget", { targetId: competitorId });
+        }
+        upstream.write(frame);
+      }).catch((error) => {
+        errors.push(error);
+        client.destroy();
+        upstream.destroy();
+      });
+    });
     client.on("data", receive);
     if (head.length > 0) receive(head);
   });
@@ -271,6 +328,7 @@ export const createTargetRaceProxy = async (browser, endpoint) => {
   return {
     endpoint: `http://127.0.0.1:${port}`,
     get competitorId() { return competitorId; },
+    get competitorClosed() { return competitorClosed; },
     close: async () => {
       for (const socket of sockets) socket.destroy();
       await new Promise((resolve) => server.close(resolve));
