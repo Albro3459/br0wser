@@ -31,6 +31,7 @@ Named profiles assume a trusted local machine and a local filesystem. Lock prefl
 - `--page-url <fragment>`: prefer the first page whose URL contains the fragment. If none matches, current behavior falls back to the first page.
 - `--headless`: launch headless when `open` starts a browser.
 - `--headed`: launch headed when `open` starts a browser.
+- `--background`: launch headed Chrome and create missing pages without requesting macOS focus. Existing pages are reused. macOS only; cannot be combined with `--headless` or used with `focus`. Launch settings cannot change an existing browser session.
 - `--help`, `-h`: print CLI help.
 - `--version`, `-v`: print the installed version.
 
@@ -39,6 +40,7 @@ Endpoint resolution without a named profile follows this order: `--endpoint`, `C
 ## Commands
 
 - `open [url]`: launch or reuse a browser and navigate to a URL. Defaults to `about:blank`.
+- `focus`: bring the selected page forward for a user handoff. Supports named profiles after verifying profile ownership; a headless session cannot be focused.
 - `info`: list pages and the selected page.
 - `goto <url>`: navigate the selected page.
 - `click-text <text>`: click the first exact text match.
@@ -48,3 +50,7 @@ Endpoint resolution without a named profile follows this order: `--endpoint`, `C
 - `eval <expression>`: evaluate JavaScript in the selected page and print its JSON result.
 - `profile create <name>`: create a named profile directory without launching Chrome.
 - `install --skills <claude|codex>`: copy the bundled skill into the chosen agent's skill directory.
+
+Use `--background` when starting a headed browser while the user works in another app. It does not force Chrome to stay behind other windows, and sites or native dialogs may still request focus. Run `focus` when the user needs to sign in or take over; pause automation until they are done. Later commands can reconnect without `--background`.
+
+Background launches require `BROWSER_CHROME_PATH` or Playwright's default executable to be inside `.app/Contents/MacOS`. Both Chromium and Chrome for Testing app bundles are supported. A bare wrapper script is unsupported in this mode. Headless sessions must be restarted as headed sessions before a user handoff.

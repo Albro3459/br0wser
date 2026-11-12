@@ -53,6 +53,26 @@ br0wser --chrome-port 9222 info
 
 The default port is `9222`. Use `--page-url` to prefer a page whose URL contains the given fragment. Read `info` first when several pages may be open.
 
+## Work while Chrome stays in the background
+
+On macOS, use `--background` when launching a headed browser to keep Chrome from taking focus while the agent works:
+
+```bash
+br0wser profile create research
+br0wser --profile research --chrome-port 9223 --background open https://example.com
+br0wser --profile research --chrome-port 9223 info
+```
+
+If you need to sign in or take over the browser, bring the selected page forward with `focus`, then let the agent know when it can continue:
+
+```bash
+br0wser --profile research --chrome-port 9223 --page-url example.com focus
+```
+
+The user can also activate Chrome manually. Background mode is macOS-only. It applies when launching Chrome or creating a page when none exists. Existing pages are reused, and later interactions need no flag. The `focus` command brings a page forward. Background mode does not control focus changes caused by sites or native dialogs.
+
+Background launches require an executable inside a Chrome/Chromium app bundle, including Playwright's Chromium or Chrome for Testing. Bare executables and wrapper scripts outside app bundles are unsupported in this mode. Launch options cannot change an already running browser or turn a headless session into a visible one.
+
 ## VS Code example
 
 If VS Code launches Chrome with a remote debugging port, `br0wser` can join that same session. This is useful when an agent needs the exact browser instance your debugger owns.
@@ -86,6 +106,7 @@ Provide the [VsCodeDebugger-MCP](https://github.com/Albro3459/VsCodeDebugger-MCP
 
 - `profile create <name>` creates a named profile directory.
 - `open [url]` launches a browser or navigates an existing session.
+- `focus` brings the selected page forward for a user handoff.
 - `info`, `goto`, `click-text`, `click-selector`, `fill-selector`, `screenshot`, and `eval` inspect or interact with the selected page.
 - `install --skills <claude|codex>` installs the bundled agent skill.
 

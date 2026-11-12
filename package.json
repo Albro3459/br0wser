@@ -1,6 +1,6 @@
 {
   "name": "@albro3459/br0wser",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "author": "Albro3459",
   "license": "MIT",
   "type": "module",
@@ -28,8 +28,9 @@
   "scripts": {
     "version:update": "npm version patch --no-git-tag-version",
     "deploy": "npm publish --access=public",
-    "test": "node --test test/profile-cli.test.js test/profile-verification.test.js",
-    "test:browser": "node --test test/profile-browser.test.js",
+    "test": "node --test test/profile-cli.test.js test/profile-verification.test.js test/background-cli.test.js",
+    "test:browser": "node --test --test-concurrency=1 test/profile-browser.test.js test/background-browser.test.js",
+    "test:background": "node --test test/background-browser.test.js",
     "check": "node --check scripts/br0wser.js && node --check scripts/profiles.js"
   }
 }
